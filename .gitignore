@@ -2,20 +2,13 @@
 *.d
 
 # Compiled Object files
-*.slo
-*.lo
+*.plo
 *.o
 *.obj
 
 # Precompiled Headers
 *.gch
 *.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
 
 # Compiled Dynamic libraries
 *.so
@@ -37,5 +30,14 @@
 *.out
 *.app
 
-# debug information files
-*.dwo
+# Folder artifacts
+build/
+bin/
+dist/
+
+# User specific settings
+.vscode/
+.idea/
+
+# Data files (We don't want to commit the huge vector DB binary)
+data/*.bin
