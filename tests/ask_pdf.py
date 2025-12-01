@@ -14,12 +14,12 @@ def main():
     print("🧠 Loading Model & Index...")
     model = SentenceTransformer('all-MiniLM-L6-v2')
     
-    # טעינת המנוע הווקטורי
-    # שים לב: חייבים ליצור את האובייקט עם המימד הנכון (384) לפני הטעינה
+    # Loading the vector engine
+    # Note: you must create the object with the correct dimension (384) before loading
     db = engram.VectorIndex(384)
     db.load_index(INDEX_FILE)
 
-    # טעינת הטקסטים המקוריים
+    # Loading the original texts
     with open(META_FILE, "r", encoding="utf-8") as f:
         metadata = json.load(f)
 
@@ -31,16 +31,16 @@ def main():
         if query.lower() == 'q':
             break
 
-        # 1. המרה לוקטור
+        # 1. Convert to vector
         query_vec = model.encode(query).tolist()
 
-        # 2. חיפוש
-        results = db.search(query_vec, k=3) # תביא את ה-3 הכי רלוונטיים
+        # 2. Search
+        results = db.search(query_vec, k=3) # get the 3 most relevant
 
-        # 3. הצגת התשובות
+        # 3. Display the answers
         print(f"\n--- Best Answers from Engram ---")
         for res_id, dist in results:
-            # שליפת הטקסט לפי ה-ID שהמנוע החזיר
+            # Fetch the text by the ID returned by the engine
             text_snippet = metadata[str(res_id)] 
             print(f"\n[Score: {dist:.4f}]")
             print(f"...{text_snippet}...")
