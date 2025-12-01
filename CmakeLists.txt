@@ -1,0 +1,41 @@
+cmake_minimum_required(VERSION 3.10)
+
+# Project Name and Version
+project(Engram VERSION 1.0 LANGUAGES CXX)
+
+# --- Compiler Settings ---
+
+# Set C++ Standard to C++17 (Good balance of features and compatibility)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Enable compiler warnings (Crucial for high-quality code)
+# GCC/Clang flags: -Wall (all warnings), -Wextra (extra warnings)
+if(MSVC)
+    add_compile_options(/W4)
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# Define where the header files are located
+include_directories(include)
+
+# --- Target 1: The Core Engine Library ---
+
+# Instead of compiling .cpp files directly into the executable every time,
+# we create a Static Library named 'engram_core'.
+# This allows multiple apps (tests, server, cli) to use the same engine code.
+add_library(engram_core STATIC src/VectorIndex.cpp)
+
+# --- Target 2: The Test Suite ---
+
+# Create the executable for running tests
+add_executable(run_tests tests/test_core.cpp)
+
+# Link the test executable with our core library
+# This tells CMake: "run_tests depends on engram_core"
+target_link_libraries(run_tests PRIVATE engram_core)
+
+# --- Output Management ---
+# Move the executables to the 'build' folder cleanly (optional but cleaner)
+set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/bin)
