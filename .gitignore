@@ -1,3 +1,4 @@
+# --- C++ & Compilation ---
 # Prerequisites
 *.d
 
@@ -10,16 +11,10 @@
 *.gch
 *.pch
 
-# Compiled Dynamic libraries
+# Compiled Libraries (Static & Dynamic)
 *.so
 *.dylib
 *.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
 *.lai
 *.la
 *.a
@@ -30,14 +25,47 @@
 *.out
 *.app
 
-# Folder artifacts
+# --- Python Integration (Critical for Pybind11) ---
+# Compiled Python Extension (The library we built)
+*.pyd
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+
+# Virtual Environments (If you use venv)
+venv/
+.venv/
+env/
+
+# --- Build Systems & Artifacts ---
+# CMake & Build folders
 build/
 bin/
 dist/
+out/
 
-# User specific settings
+# CMake User Settings
+CMakeUserPresets.json
+
+# --- IDE & Editor Settings ---
+# VS Code
 .vscode/
+
+# Visual Studio (Hidden folder created by VS)
+.vs/
+
+# JetBrains / CLion
 .idea/
 
-# Data files (We don't want to commit the huge vector DB binary)
+# --- Configuration & Secrets ---
+# Environment variables (Paths, Secrets) - NEVER COMMIT THIS!
+.env
+
+# --- Data & Runtime ---
+# Vector Database files (Binary data)
 data/*.bin
+
+# OS generated files
+.DS_Store
+Thumbs.db
