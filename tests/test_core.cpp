@@ -49,7 +49,11 @@ void test_add_and_search() {
 void test_persistence() {
     std::cout << "[Running] test_persistence..." << std::endl;
     
-    std::string filename = "test_index.bin";
+    if (!std::filesystem::exists("data")) {
+        std::filesystem::create_directory("data");
+    }
+
+    std::string filename = "data/test_index.bin";
     
     // Phase 1: Create and Save
     {
