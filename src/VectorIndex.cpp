@@ -4,7 +4,8 @@
 #include <stdexcept>    
 #include <fstream>      
 #include <algorithm>    
-#include <iostream>  
+#include <iostream>
+#include <immintrin.h>  
 
 
 // Constructor using "Initializer List" style (Preferred in C++)
@@ -13,14 +14,34 @@ VectorIndex::VectorIndex(size_t dimension) : _dimension(dimension), _count(0) {
 }
 
 
-// Private Method: Calculate Squared Euclidean Distance
+// Private Method: Calculate Squared Euclidean Distance using AVX2 simd instructions
 float VectorIndex::calculate_distance(const float* vec_a, const float* vec_b) const{
-    float dist = 0.0f;
-    for (size_t i = 0; i < _dimension; ++i){
-        float diff = vec_a[i] - vec_b[i];
-        dist += diff * diff;
+    __m256 sum_vec = _mm256_setzero_ps(); // Initialize sum vector to zero
+
+    size_t dim = _dimension;
+    size_t i = 0;
+
+    // Process 8 floats at a time
+    for (; i + 8 <= dim; i += 8) {
+        __m256 a = _mm256_loadu_ps(&vec_a[i]);
+        __m256 b = _mm256_loadu_ps(&vec_b[i]);
+        __m256 diff = _mm256_sub_ps(a, b);
+        sum_vec = _mm256_fmadd_ps(diff, diff, sum_vec); // sum_vec += diff * diff
     }
-    return std::sqrt(dist);
+
+    // Horizontal sum of sum_vec
+    float temp[8];
+    _mm256_storeu_ps(temp, sum_vec);
+    float total_sum = temp[0] + temp[1] + temp[2] + temp[3] + temp[4] + temp[5] + temp[6] + temp[7];
+
+    // Handle remaining elements
+    for (; i < dim; i++) {
+        float diff = vec_a[i] - vec_b[i];
+        total_sum += diff * diff;
+    }
+
+    return std::sqrt(total_sum);
+
 }
 
 // Public Method: Search Nearest Neighbors
