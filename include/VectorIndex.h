@@ -1,59 +1,72 @@
 #ifndef VECTOR_INDEX_H
 #define VECTOR_INDEX_H
 
-#include <vector>
+#include <immintrin.h>
+
+#include <cstddef>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
-class VectorIndex {
+// Standard-compliant Custom Aligned Allocator
+template <typename T, std::size_t Alignment>
+struct AlignedAllocator {
+  using value_type = T;
+  using size_type = std::size_t;
+  using difference_type = std::ptrdiff_t;
 
-private:
-    // -- Members Variables --
+  AlignedAllocator() noexcept = default;
+  template <typename U>
+  AlignedAllocator(const AlignedAllocator<U, Alignment>&) noexcept {}
 
-    // The main data store. 
-    // We use a "Flat Buffer" approach: a single 1D vector storing all data sequentially.
-    // Layout: [vec1_dim1, vec1_dim2, ..., vec2_dim1, vec2_dim2, ...]
-    // Why? It's much faster (CPU Cache friendly) than vector<vector<float>>.
-    std::vector<float> _data;
+  // Required by GCC 15 to rebind the allocator to different types
+  template <typename U>
+  struct rebind {
+    using other = AlignedAllocator<U, Alignment>;
+  };
 
-    // the fixed number of dimensions for each vector(1536 in openai embeddings)
-    const size_t _dimension;
+  T* allocate(std::size_t n) {
+    if (n > std::numeric_limits<std::size_t>::max() / sizeof(T))
+      throw std::bad_alloc();
+    void* ptr = _mm_malloc(n * sizeof(T), Alignment);
+    if (!ptr) throw std::bad_alloc();
+    return static_cast<T*>(ptr);
+  }
 
-    // How many vectors are currently stored.
-    size_t _count;
+  void deallocate(T* p, std::size_t) noexcept { _mm_free(p); }
 
-    // -- Private Methods --
-
-    // Calculates the squared Euclidean distance between two vectors.
-    // We pass pointers (float*) to avoid data copying for maximum performance.
-
-    float calculate_distance(const float* vec_a, const float* vec_b) const;
-
-
-
-public:
-    // --- Public API ---
-
-    // Constructor: Initializes the DB with a fixed dimension size.
-    VectorIndex(size_t dimension);
-
-    // Adds a new vector to the index.
-    // Throws std::invalid_argument if vec.size() != _dimension.
-    void add_vector(const std::vector<float>& vec);
-
-    // Finds the 'k' nearest neighbors to the query vector.
-    // Returns: A vector of pairs {Vector_ID, Distance}, sorted by best match.
-    std::vector<std::pair<size_t, float>> search(const std::vector<float>& query, int k = 1);
-
-    // Saves the entire index to a binary file on disk.
-    void save_index(const std::string& filepath) const;
-
-    // Loads the index from a binary file (overwrites current memory).
-    void load_index(const std::string& filepath);
-    
-    // Getters
-    size_t get_count() const;
-    size_t get_dimension() const;
+  // Required by GCC 15 for allocator comparison
+  bool operator==(const AlignedAllocator&) const noexcept { return true; }
+  bool operator!=(const AlignedAllocator&) const noexcept { return false; }
 };
 
-#endif // VECTOR_INDEX_H
+class VectorIndex {
+ private:
+  const size_t _dimension;
+  size_t _padded_dimension;
+  size_t _count;
+
+  std::vector<float, AlignedAllocator<float, 32>> _data;
+
+  float calculate_squared_distance(const float* vec_a,
+                                   const float* vec_b) const;
+
+ public:
+  VectorIndex(size_t dimension);
+
+  void add_vector(const std::vector<float>& vec);
+  void delete_vector(size_t index);
+
+  std::vector<std::pair<size_t, float>> search(const std::vector<float>& query,
+                                               int k = 1);
+
+  void save_index(const std::string& filepath) const;
+  void load_index(const std::string& filepath);
+
+  size_t get_count() const;
+  size_t get_dimension() const;
+};
+
+#endif  // VECTOR_INDEX_H

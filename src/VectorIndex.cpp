@@ -1,141 +1,129 @@
 #include "../include/VectorIndex.h"
-
 #include <cmath>        
-#include <stdexcept>    
 #include <fstream>      
 #include <algorithm>    
 #include <iostream>
-#include <immintrin.h>  
+#include <queue>
 
-
-// Constructor using "Initializer List" style (Preferred in C++)
 VectorIndex::VectorIndex(size_t dimension) : _dimension(dimension), _count(0) {
-    _data.reserve(1000 * dimension); // Pre-allocate space for 1000 vectors
+    // Pad dimension to nearest multiple of 8 to maintain alignment across vectors
+    _padded_dimension = (_dimension + 7) & ~7;
+    _data.reserve(1000 * _padded_dimension);
 }
 
-
-// Private Method: Calculate Squared Euclidean Distance using AVX2 simd instructions
-float VectorIndex::calculate_distance(const float* vec_a, const float* vec_b) const{
-    __m256 sum_vec = _mm256_setzero_ps(); // Initialize sum vector to zero
-
-    size_t dim = _dimension;
-    size_t i = 0;
-
-    // Process 8 floats at a time
-    for (; i + 8 <= dim; i += 8) {
-        __m256 a = _mm256_loadu_ps(&vec_a[i]);
-        __m256 b = _mm256_loadu_ps(&vec_b[i]);
+float VectorIndex::calculate_squared_distance(const float* vec_a, const float* vec_b) const {
+    __m256 sum_vec = _mm256_setzero_ps();
+    
+    // Process strictly using aligned loads
+    for (size_t i = 0; i < _padded_dimension; i += 8) {
+        __m256 a = _mm256_load_ps(&vec_a[i]); 
+        __m256 b = _mm256_load_ps(&vec_b[i]);
         __m256 diff = _mm256_sub_ps(a, b);
-        sum_vec = _mm256_fmadd_ps(diff, diff, sum_vec); // sum_vec += diff * diff
+        sum_vec = _mm256_fmadd_ps(diff, diff, sum_vec);
     }
 
-    // Horizontal sum of sum_vec
     float temp[8];
-    _mm256_storeu_ps(temp, sum_vec);
-    float total_sum = temp[0] + temp[1] + temp[2] + temp[3] + temp[4] + temp[5] + temp[6] + temp[7];
-
-    // Handle remaining elements
-    for (; i < dim; i++) {
-        float diff = vec_a[i] - vec_b[i];
-        total_sum += diff * diff;
-    }
-
-    return std::sqrt(total_sum);
-
+    _mm256_store_ps(temp, sum_vec); 
+    return temp[0] + temp[1] + temp[2] + temp[3] + temp[4] + temp[5] + temp[6] + temp[7];
 }
 
-// Public Method: Search Nearest Neighbors
-std::vector<std::pair<size_t, float>> VectorIndex::search(const std::vector<float>& query, int k){
-    // Validate query dimension
-    if(query.size() != _dimension){
-        throw std::invalid_argument("Query vector dimension does not match index dimension." + std::to_string(query.size()) + " != " + std::to_string(_dimension));
-    }
-    // Compute distances to all vectors
-    std::vector<std::pair<size_t,float>> results;
-    results.reserve(_count);
+void VectorIndex::add_vector(const std::vector<float>& vec) {
+    if (vec.size() != _dimension) throw std::invalid_argument("Vector dimension does not match index.");
+    
+    size_t start_idx = _data.size();
+    // Resize automatically populates padding space with 0.0f
+    _data.resize(start_idx + _padded_dimension, 0.0f); 
+    std::copy(vec.begin(), vec.end(), _data.begin() + start_idx);
+    _count++;
+}
 
-    // Calculate distances
-    for(size_t i = 0; i < _count; i++){
-        float distance = calculate_distance(&_data[i*_dimension],query.data());
-        results.emplace_back(i,distance);
+void VectorIndex::delete_vector(size_t index) {
+    if (index >= _count) throw std::out_of_range("Index out of bounds.");
+    
+    size_t last_index = _count - 1;
+    if (index != last_index) {
+        std::copy(_data.begin() + last_index * _padded_dimension, 
+                  _data.begin() + (last_index + 1) * _padded_dimension, 
+                  _data.begin() + index * _padded_dimension);
     }
-    // Sort results by distance
-    std::sort(results.begin(),results.end(),[](const auto& a, const auto& b){
-        return a.second < b.second;
-    });
+    _data.resize(last_index * _padded_dimension);
+    _count--;
+}
 
-    // Return top-k results
-    if(results.size() > k){
-        results.resize(k);
+std::vector<std::pair<size_t, float>> VectorIndex::search(const std::vector<float>& query, int k) {
+    if (query.size() != _dimension) throw std::invalid_argument("Query dimension mismatch.");
+    
+    // Create an aligned, padded copy of the query to safely execute SIMD comparisons
+    std::vector<float, AlignedAllocator<float, 32>> padded_query(_padded_dimension, 0.0f);
+    std::copy(query.begin(), query.end(), padded_query.begin());
+
+    // Max-heap for O(N log k) top-k extraction
+    auto cmp = [](const std::pair<size_t, float>& left, const std::pair<size_t, float>& right) {
+        return left.second < right.second; 
+    };
+    std::priority_queue<std::pair<size_t, float>, std::vector<std::pair<size_t, float>>, decltype(cmp)> max_heap(cmp);
+
+    for (size_t i = 0; i < _count; ++i) {
+        float dist_sq = calculate_squared_distance(&_data[i * _padded_dimension], padded_query.data());
+        
+        if (max_heap.size() < static_cast<size_t>(k)) {
+            max_heap.emplace(i, dist_sq);
+        } else if (dist_sq < max_heap.top().second) {
+            max_heap.pop();
+            max_heap.emplace(i, dist_sq);
+        }
     }
-    // Return the results
+
+    std::vector<std::pair<size_t, float>> results;
+    results.reserve(max_heap.size());
+    while (!max_heap.empty()) {
+        results.push_back(max_heap.top());
+        max_heap.pop();
+    }
+    std::reverse(results.begin(), results.end());
     return results;
 }
 
-// Public Method: Add Vector
-void VectorIndex::add_vector(const std::vector<float>& vec){
-    if (vec.size() != get_dimension()){
-        throw std::invalid_argument("Vector dimension does not match index dimension.");
-    }
-    _count += 1;
-    _data.insert(_data.end(), vec.begin(), vec.end()); 
-}
-
-
-// Public Method: Save Index to Disk
-void VectorIndex::save_index(const std::string& filepath) const{
-
-    // Open file in binary write mode
+void VectorIndex::save_index(const std::string& filepath) const {
     std::ofstream output_file(filepath, std::ios::binary);
-    // Check if file opened successfully
-    if(!output_file.is_open()) {
-        throw std::runtime_error("Error: Could not open file for writing: " + filepath); 
-    }
+    if(!output_file.is_open()) throw std::runtime_error("Could not open file for writing: " + filepath); 
 
-    // Write dimension and count
     output_file.write(reinterpret_cast<const char*>(&_dimension), sizeof(_dimension));
+    output_file.write(reinterpret_cast<const char*>(&_padded_dimension), sizeof(_padded_dimension));
     output_file.write(reinterpret_cast<const char*>(&_count), sizeof(_count));
 
-    // Write vector data
-    if(_data.size() > 0) {
+    if(!_data.empty()) {
         output_file.write(reinterpret_cast<const char*>(_data.data()), _data.size() * sizeof(float));
     }
     output_file.close();
-
-
 }
-// Public Method: Load Index from Disk
-void VectorIndex::load_index(const std::string& filepath){
-    std::ifstream input_file(filepath, std::ios::binary);
 
-    if(!input_file.is_open()) {
-        throw std::runtime_error("Error: Could not open file for reading: " + filepath);
-    }
+void VectorIndex::load_index(const std::string& filepath) {
+    std::ifstream input_file(filepath, std::ios::binary);
+    if(!input_file.is_open()) throw std::runtime_error("Could not open file for reading: " + filepath);
+    
     size_t file_dimension = 0;
+    size_t file_padded_dimension = 0;
     size_t file_count = 0;
-    // Read dimension and count
+
     input_file.read(reinterpret_cast<char*>(&file_dimension), sizeof(file_dimension));
+    input_file.read(reinterpret_cast<char*>(&file_padded_dimension), sizeof(file_padded_dimension));
     input_file.read(reinterpret_cast<char*>(&file_count), sizeof(file_count));
 
-    if(file_dimension != _dimension) {
-        throw std::runtime_error("Error: Dimension mismatch when loading index from file.");
-    }
+    if(file_dimension != _dimension) throw std::runtime_error("Dimension mismatch when loading.");
 
-    // Read vector data
-    _data.resize(file_count * file_dimension);
-    input_file.read(reinterpret_cast<char*>(_data.data()), _data.size() * sizeof(float));
-
-    if (!input_file) {
-        throw std::runtime_error("Error: Index file is corrupted or truncated.");
+    _padded_dimension = file_padded_dimension;
+    _data.resize(file_count * _padded_dimension);
+    
+    if (file_count > 0) {
+        input_file.read(reinterpret_cast<char*>(_data.data()), _data.size() * sizeof(float));
     }
+    
+    if (!input_file) throw std::runtime_error("Index file is corrupted or truncated.");
+    
     _count = file_count;
     input_file.close();
 }
-// Getter: Get Count
-size_t VectorIndex::get_count() const{
-    return _count;
-}
-// Getter: Get Dimension
-size_t VectorIndex::get_dimension() const{
-    return _dimension;
-}
+
+size_t VectorIndex::get_count() const { return _count; }
+size_t VectorIndex::get_dimension() const { return _dimension; }
