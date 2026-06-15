@@ -26,11 +26,21 @@ FetchContent_MakeAvailable(pybind11)
 # --- Part 2: Build the Python Module ---
 # 'pybind11_add_module' is a wrapper around add_library.
 # It creates a .pyd (Windows) or .so (Linux) file that Python can import.
-pybind11_add_module(engram src/bindings.cpp src/VectorIndex.cpp)
+pybind11_add_module(engram src/engram_bindings.cpp src/VectorIndex.cpp)
+
+# Enable AVX2 and FMA for SIMD optimizations
+if(NOT MSVC)
+    target_compile_options(engram PRIVATE -mavx2 -mfma)
+endif()
 
 # --- Part 3: C++ Tests (Optional) ---
 # We keep the standalone C++ executable for debugging the core engine
 add_executable(run_tests tests/test_core.cpp src/VectorIndex.cpp)
+
+# Enable AVX2 and FMA for SIMD optimizations
+if(NOT MSVC)
+    target_compile_options(run_tests PRIVATE -mavx2 -mfma)
+endif()
 
 # Output Directory:
 # Place the compiled Python module in the root build directory for easy import
